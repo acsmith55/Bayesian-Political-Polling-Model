@@ -1,0 +1,100 @@
+# load the relevant libraries and the FiveThirtyEight Cygnal dataset
+
+library(tidyverse)
+library(janitor)
+library(rstan)
+library(bayesplot)
+library(bayesrules)
+library(broom.mixed)
+library(StanHeaders)
+
+
+polls <- read_csv("polls.csv")
+
+
+# take a peek at the data then attach
+head(polls)
+attach(polls)
+################################################################################
+
+# Run a simple Bayesian analysis (pre-simulation)
+
+# build a prior of Beta(30, 40)
+
+plot_beta(30, 40)
+
+# plot and summarize given the data
+
+plot_beta_binomial(alpha = 30, beta = 40, y = 1084, n = 2550)
+
+summarize_beta_binomial(alpha = 30, beta = 40, y = 1084, n = 2550)
+
+################################################################################
+# Time to Simulate
+
+  # define the Bayesian model structure in RStan given the prior of Beta(30,40)
+bb_model <- "
+  data {
+    int<lower = 0, upper = 2550> Y;
+  }
+  parameters {
+    real<lower = 0, upper = 1> pi;
+  }
+  model {
+    Y ~ binomial(2550, pi);
+    pi ~ beta(30, 40);
+  }
+"
+
+  # run the simulation
+bb_sim <- stan(model_code = bb_model, data = list(Y = 1084), 
+               chains = 4, iter = 5000*2, seed = 84735)
+
+################################################################################
+# Build and look at diagnostics
+mcmc_trace(bb_sim, pars = "pi", size = 0.1) #trace plot
+mcmc_dens_overlay(bb_sim, pars = "pi") + 
+  ylab("density") #density overlay plot
+mcmc_acf(bb_sim, pars = "pi") #autocorrelation plot
+
+
+################################################################################
+# MCMC Chain Diagnostic Statistics
+neff_ratio(bb_sim, pars = c("pi")) #effective sample size ratio
+rhat(bb_sim, pars = "pi") # R-hat: comparing variance between chains
+
+################################################################################
+# Posterior Inference
+
+  # visualizations
+mcmc_dens(bb_sim, pars = "pi") + 
+  yaxis_text(TRUE) + 
+  ylab("density") #density plot
+mcmc_hist(bb_sim, pars = "pi") + 
+  yaxis_text(TRUE) + 
+  ylab("count") #histogram
+
+  # posterior summary statistics and tests
+
+  # credible intervals
+qbeta(c(0.025, 0.975), 1114, 1506) #95% credible interval
+qbeta(c(0.1, 0.9), 1114, 1506) #80% credible interval
+qbeta(c(0.25, 0.75), 1114, 1506) #50% credible interval
+
+  # posterior probability
+post_prob <- pbeta(0.35, 1114, 1506) #two-sided hypothesis test
+post_prob
+
+post_odds <- post_prob / (1 - post_prob) #posterior odds
+post_odds
+
+  # prior probability
+prior_prob <- pbeta(0.35, 30, 40) #prior odds
+prior_prob
+
+prior_odds <- prior_prob / (1 - prior_prob)
+prior_odds
+
+  # Bayes' Factor
+BF <- post_odds / prior_odds #Bayes' Factor: how much did we learn?
+BF
